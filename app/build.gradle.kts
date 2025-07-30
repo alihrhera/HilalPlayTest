@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.logging.interceptor)
     // end of network libs
 
+    implementation(libs.coil.compose)
 
 
 

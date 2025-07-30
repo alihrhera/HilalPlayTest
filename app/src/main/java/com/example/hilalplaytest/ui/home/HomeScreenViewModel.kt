@@ -55,6 +55,89 @@ class HomeScreenViewModel @Inject constructor(
         getMenu()
     }
 
+    fun filterByCategory(selectedTap: MenuTap) = if (menuState.selectedSorter.name.isNotBlank()) {
+        val items = selectedTap.items
+        viewModelScope.launch(Dispatchers.Default) {
+            updateState(
+                menuState.copy(
+                    selectedTap = selectedTap.copy(
+                        items = sortBy(menuState.selectedSorter, items)
+                    )
+                )
+            )
+        }
+    } else
+        updateState(
+            menuState.copy(selectedTap = selectedTap, isLoading = false)
+        )
+
+    fun filterBySorter(sortOption: SortOption) {
+        val sortedList = mutableListOf<MenuItem>()
+        menuState.selectedTap.items.let { sortedList.addAll(it) }
+        viewModelScope.launch(Dispatchers.Default) {
+            updateState(
+                menuState.copy(
+                    selectedSorter = sortOption,
+                    selectedTap = menuState.selectedTap.copy(
+                        items = sortBy(sortOption, menuState.selectedTap.items)
+                    ),
+                )
+            )
+        }
+    }
+
+
+    private suspend fun sortBy(sortOption: SortOption, items: List<MenuItem>): List<MenuItem> {
+        return viewModelScope.async {
+            sortOption.sort(items)
+        }.await()
+    }
+
+
+    fun refreshMenu() {
+        viewModelScope.launch {
+            refreshMenuUsecase().collect { response ->
+                updateState(
+                    when (response) {
+                        is BaseResponse.Error -> HomeScreenState(errorMessage = response.throwable.message)
+                        is BaseResponse.Loading -> HomeScreenState(isLoading = true)
+                        is BaseResponse.Success<Menu> -> HomeScreenState(
+                            data = response.data,
+                            selectedTap = response.data.firstOrNull() ?: MenuTap("", emptyList())
+                        )
+                    }
+                )
+            }
+        }
+    }
+    fun onChangeFavoriteState(item: MenuItem) {
+        val toUpdate = item.copy(isFavorite = item.isFavorite.not())
+        viewModelScope.launch {
+            updateItemUsecase(toUpdate).collect { response ->
+                updateState(
+                    when (response) {
+                        is BaseResponse.Error -> menuState.copy(errorMessage = response.throwable.message)
+                        is BaseResponse.Loading -> menuState.copy(isLoading = true)
+                        is BaseResponse.Success<MenuItem> -> {
+                            val tapItems = menuState.selectedTap.copy(
+                                items = menuState.selectedTap.items.map {
+                                    if (it.id == response.data.id) response.data else it
+                                }
+                            ).items
+
+                            menuState.copy(
+                                isLoading = false,
+                                selectedTap = menuState.selectedTap.copy(items=tapItems),
+                                data = menuState.data.map {
+                                    if (it.name == menuState.selectedTap.name) it.copy(items = tapItems) else it
+                                }
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
 
     fun updateState(newState: HomeScreenState) {
         menuState = newState
